@@ -1,4 +1,28 @@
-<!DOCTYPE html>
+se {
+          throw new Error(result.message || "Unknown error");
+        }
+      } catch (error) {
+        console.error("Error adding inventory:", error);
+        status.innerText = "Failed to add item: " + error.message;
+      }
+    });
+
+    // ===== MANUAL ADD =====
+    manualAddBtn.addEventListener('click', async () => {
+      const barcode = manualBarcodeInput.value.trim();
+      if (!barcode) return alert("Enter a barcode first");
+
+      lastScanned = barcode;
+      addButton.disabled = false;
+      scanResult.innerText = "Scanned manually: " + lastScanned;
+      status.innerText = "";
+    });
+
+    // ===== LOAD INVENTORY =====
+    async function loadInventory() {
+      try {
+        const res = await fetch(API_URL);
+        if (!res.ok)<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -90,31 +114,7 @@
           addButton.disabled = true;
           scanResult.innerText = "Scan a barcode...";
           loadInventory();
-        } else {
-          throw new Error(result.message || "Unknown error");
-        }
-      } catch (error) {
-        console.error("Error adding inventory:", error);
-        status.innerText = "Failed to add item: " + error.message;
-      }
-    });
-
-    // ===== MANUAL ADD =====
-    manualAddBtn.addEventListener('click', async () => {
-      const barcode = manualBarcodeInput.value.trim();
-      if (!barcode) return alert("Enter a barcode first");
-
-      lastScanned = barcode;
-      addButton.disabled = false;
-      scanResult.innerText = "Scanned manually: " + lastScanned;
-      status.innerText = "";
-    });
-
-    // ===== LOAD INVENTORY =====
-    async function loadInventory() {
-      try {
-        const res = await fetch(API_URL);
-        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+        } el throw new Error(`HTTP error ${res.status}`);
         const data = await res.json();
 
         if (data.length <= 1) {
