@@ -1,148 +1,238 @@
-se {
-          throw new Error(result.message || "Unknown error");
-        }
-      } catch (error) {
-        console.error("Error adding inventory:", error);
-        status.innerText = "Failed to add item: " + error.message;
-      }
-    });
-
-    // ===== MANUAL ADD =====
-    manualAddBtn.addEventListener('click', async () => {
-      const barcode = manualBarcodeInput.value.trim();
-      if (!barcode) return alert("Enter a barcode first");
-
-      lastScanned = barcode;
-      addButton.disabled = false;
-      scanResult.innerText = "Scanned manually: " + lastScanned;
-      status.innerText = "";
-    });
-
-    // ===== LOAD INVENTORY =====
-    async function loadInventory() {
-      try {
-        const res = await fetch(API_URL);
-        if (!res.ok)<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Inventory Tracker</title>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
-    video { width: 100%; max-width: 400px; border: 1px solid #ccc; margin-bottom: 10px; }
+    video { width: 100%; max-width: 420px; border: 1px solid #ccc; margin-bottom: 10px; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
     button { margin-top: 10px; padding: 8px 12px; font-size: 16px; }
     #scanner-container { display: flex; flex-direction: column; align-items: center; }
-    input { padding: 6px; margin-top: 6px; width: 200px; }
-    .error { color: red; font-weight: bold; }
+    input { padding: 6px; margin-top: 6px; width: 220px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .error { color: #b00020; font-weight: bold; }
+    .ok { color: #2e7d32; font-weight: bold; }
+    .muted { color: #666; }
   </style>
 </head>
 <body>
   <h1>📦 Inventory Tracker</h1>
 
   <div id="scanner-container">
-    <video id="video" autoplay></video>
-    <p id="scan-result">Scan a barcode...</p>
-    <button id="add-btn" disabled>Add to Inventory</button>
+    <video id="video" autoplay playsinline muted></video>
+    <p id="scan-result" class="muted">Scan a barcode…</p>
+    <div class="row">
+      <button id="start-cam">Start Camera</button>
+      <button id="stop-cam">Stop Camera</button>
+      <button id="add-btn" disabled>Add to Inventory</button>
+    </div>
 
-    <p>Manual barcode entry:</p>
-    <input type="text" id="manual-barcode" placeholder="Enter barcode manually">
-    <button id="manual-add-btn">Add Manually</button>
+    <p class="muted">Manual barcode entry (fallback):</p>
+    <div class="row">
+      <input type="text" id="manual-barcode" placeholder="Enter barcode" />
+      <button id="manual-add-btn">Use This Barcode</button>
+    </div>
   </div>
 
-  <button id="load-btn">📋 Load Inventory</button>
+  <div class="row">
+    <button id="load-btn">📋 Load Inventory</button>
+    <button id="ping-btn">🔎 Ping API</button>
+  </div>
   <div id="inventory"></div>
+
   <p id="status" class="error"></p>
 
-  <!-- ZXing library for barcode scanning -->
+  <!-- ZXing library -->
   <script src="https://unpkg.com/@zxing/library@latest"></script>
   <script>
-    // ===== CONFIGURE YOUR WEB APP URL =====
-    const API_URL = "https://script.google.com/macros/s/AKfycbxpYLFedFoERuKZxZgS9uAULPTHUl49xpOOc_s-TZsoyJAtEUzyQhaxoD2_WnmUCzDFMQ/exec";
+    // ===== YOUR APPS SCRIPT WEB APP URL =====
+    const API_URL = "https://script.google.com/macros/s/AKfycbx-3nkSgbUTT3rzbb1eRb4qZ-vtwv8DU_rAOYgAwYuKqD9Zw3opU252jHV_ecJAFj0t3A/exec";
 
     let lastScanned = null;
-    const videoElement = document.getElementById('video');
+    let streamStopper = null; // to stop camera cleanly
+
+    const videoEl = document.getElementById('video');
     const scanResult = document.getElementById('scan-result');
-    const addButton = document.getElementById('add-btn');
-    const manualBarcodeInput = document.getElementById('manual-barcode');
+    const addBtn = document.getElementById('add-btn');
+    const startCamBtn = document.getElementById('start-cam');
+    const stopCamBtn = document.getElementById('stop-cam');
+    const manualInput = document.getElementById('manual-barcode');
     const manualAddBtn = document.getElementById('manual-add-btn');
     const loadBtn = document.getElementById('load-btn');
+    const pingBtn = document.getElementById('ping-btn');
     const inventoryDiv = document.getElementById('inventory');
-    const status = document.getElementById('status');
+    const statusEl = document.getElementById('status');
 
-    // ===== SCANNER SETUP =====
+    // ===== SCANNER =====
     const codeReader = new ZXing.BrowserMultiFormatReader();
-    codeReader.decodeFromVideoDevice(null, videoElement, (result, err) => {
-      if (result) {
-        console.log("Scanned barcode:", result.text);
-        lastScanned = result.text;
-        scanResult.innerText = "Scanned: " + lastScanned;
-        addButton.disabled = false;
-        status.innerText = "";
-      }
-      if (err && !(err instanceof ZXing.NotFoundException)) {
-        console.error(err);
-      }
-    });
 
-    // ===== ADD SCANNED ITEM =====
-    addButton.addEventListener('click', async () => {
-      if (!lastScanned) return;
-
-      const productName = prompt("Enter product name:", "Unknown");
-      const quantity = prompt("Enter quantity:", "1");
-      const price = prompt("Enter price:", "0");
-
+    async function startCamera() {
+      statusEl.textContent = "";
       try {
-        const response = await fetch(API_URL, {
-          method: "POST",
-          body: JSON.stringify({
-            Barcode: lastScanned,
-            Product: productName,
-            Quantity: parseInt(quantity),
-            Price: parseFloat(price)
-          }),
-          headers: { "Content-Type": "application/json" }
-        });
-        const result = await response.json();
-
-        if (result.status === "success") {
-          alert("Item added!");
-          lastScanned = null;
-          addButton.disabled = true;
-          scanResult.innerText = "Scan a barcode...";
-          loadInventory();
-        } el throw new Error(`HTTP error ${res.status}`);
-        const data = await res.json();
-
-        if (data.length <= 1) {
-          inventoryDiv.innerHTML = "<p>No inventory yet.</p>";
-          return;
-        }
-
-        let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th></tr>";
-        data.slice(1).forEach(row => {
-          html += `<tr>
-            <td>${row[0]}</td>
-            <td>${row[1]}</td>
-            <td>${row[2]}</td>
-            <td>${row[3]}</td>
-          </tr>`;
-        });
-        html += "</table>";
-        inventoryDiv.innerHTML = html;
-        status.innerText = "";
-      } catch (error) {
-        console.error("Error loading inventory:", error);
-        inventoryDiv.innerHTML = "";
-        status.innerText = "Error loading inventory: " + error.message;
+        // Prefer back camera on phones
+        await codeReader.decodeFromVideoDevice(
+          { facingMode: { ideal: "environment" } },
+          videoEl,
+          (result, err) => {
+            if (result) {
+              lastScanned = result.text;
+              scanResult.textContent = "Scanned: " + lastScanned;
+              addBtn.disabled = false;
+              statusEl.textContent = "";
+            }
+            if (err && !(err instanceof ZXing.NotFoundException)) {
+              console.error(err);
+            }
+          }
+        );
+        // Remember how to stop the stream
+        const stream = videoEl.srcObject;
+        streamStopper = () => {
+          stream && stream.getTracks().forEach(t => t.stop());
+          codeReader.reset();
+        };
+      } catch (e) {
+        console.error("Camera start error:", e);
+        statusEl.textContent = "Camera error: " + e.message;
       }
     }
 
+    function stopCamera() {
+      try {
+        if (streamStopper) streamStopper();
+        streamStopper = null;
+        addBtn.disabled = true;
+        scanResult.textContent = "Scan a barcode…";
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    startCamBtn.addEventListener('click', startCamera);
+    stopCamBtn.addEventListener('click', stopCamera);
+
+    // Auto-start camera on phones after a user gesture:
+    document.addEventListener('touchstart', function once() {
+      document.removeEventListener('touchstart', once);
+      startCamera();
+    }, { passive: true });
+
+    // ===== ADD ITEM (POST as form-urlencoded; no CORS preflight) =====
+    addBtn.addEventListener('click', async () => {
+      if (!lastScanned) return;
+
+      const product = prompt("Enter product name:", "Unknown") || "Unknown";
+      const qty = prompt("Enter quantity:", "1") || "1";
+      const price = prompt("Enter price:", "0") || "0";
+
+      try {
+        const body = new URLSearchParams({
+          Barcode: lastScanned,
+          Product: product,
+          Quantity: String(parseInt(qty, 10) || 0),
+          Price: String(parseFloat(price) || 0)
+        });
+
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+          body
+        });
+
+        // Apps Script returns JSON text; parse safely:
+        const text = await res.text();
+        let json;
+        try { json = JSON.parse(text); } catch {
+          throw new Error("Unexpected response: " + text.slice(0, 120));
+        }
+
+        if (json.status === "success") {
+          statusEl.className = "ok";
+          statusEl.textContent = "Added!";
+          lastScanned = null;
+          addBtn.disabled = true;
+          scanResult.textContent = "Scan a barcode…";
+          await loadInventory();
+        } else {
+          throw new Error(json.message || "Unknown error");
+        }
+      } catch (err) {
+        console.error("Add error:", err);
+        statusEl.className = "error";
+        statusEl.textContent = "Failed to add item: " + err.message;
+      }
+    });
+
+    // ===== MANUAL BARCODE (fallback) =====
+    manualAddBtn.addEventListener('click', () => {
+      const v = manualInput.value.trim();
+      if (!v) return alert("Enter a barcode first.");
+      lastScanned = v;
+      addBtn.disabled = false;
+      scanResult.textContent = "Scanned manually: " + lastScanned;
+      statusEl.textContent = "";
+    });
+
+    // ===== LOAD INVENTORY (GET) =====
+    async function loadInventory() {
+      statusEl.textContent = "";
+      try {
+        const res = await fetch(API_URL, { method: "GET" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (!Array.isArray(data) || data.length === 0) {
+          inventoryDiv.innerHTML = "<p>No data.</p>";
+          return;
+        }
+
+        // Build table (skip header row in display if you want)
+        let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th></tr>";
+        const rows = data.slice(1); // assume row 0 is headers
+        if (rows.length === 0) {
+          html += `<tr><td colspan="4" class="muted">No inventory yet.</td></tr>`;
+        } else {
+          rows.forEach(r => {
+            html += `<tr>
+              <td>${r[0] ?? ""}</td>
+              <td>${r[1] ?? ""}</td>
+              <td>${r[2] ?? ""}</td>
+              <td>${r[3] ?? ""}</td>
+            </tr>`;
+          });
+        }
+        html += "</table>";
+        inventoryDiv.innerHTML = html;
+      } catch (err) {
+        console.error("Load error:", err);
+        statusEl.className = "error";
+        statusEl.textContent = "Error loading inventory: " + err.message;
+        inventoryDiv.innerHTML = "";
+      }
+    }
     loadBtn.addEventListener('click', loadInventory);
-    window.onload = loadInventory;
+
+    // Quick connectivity check
+    pingBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch(API_URL);
+        const text = await res.text();
+        statusEl.className = "ok";
+        statusEl.textContent = "Ping OK (first 60 chars): " + text.slice(0, 60);
+      } catch (e) {
+        statusEl.className = "error";
+        statusEl.textContent = "Ping failed: " + e.message;
+      }
+    });
+
+    // Initial load
+    window.addEventListener('load', () => {
+      loadInventory();
+      // don’t auto-start camera on desktop
+    });
   </script>
 </body>
 </html>
