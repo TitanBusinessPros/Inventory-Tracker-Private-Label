@@ -15,7 +15,7 @@
     .row { display: flex; gap: 10px; flex-wrap: wrap; }
     .error { color: #b00020; font-weight: bold; }
     .ok { color: #2e7d32; font-weight: bold; }
-    .muted { color: #666; }
+    .muted { color: #999; }
   </style>
 </head>
 <body>
@@ -66,41 +66,47 @@
     const inventoryDiv = document.getElementById('inventory');
     const statusEl = document.getElementById('status');
 
-    // ===== SCANNER =====
+    // ===== SCANNER SETUP (FIXED) =====
     const codeReader = new ZXing.BrowserMultiFormatReader();
 
-    async function startCamera() {
-      statusEl.textContent = "";
+    async function startScanner() {
       try {
-        // Prefer back camera on phones
-        await codeReader.decodeFromVideoDevice(
-          { facingMode: { ideal: "environment" } },
-          videoEl,
-          (result, err) => {
-            if (result) {
-              lastScanned = result.text;
-              scanResult.textContent = "Scanned: " + lastScanned;
-              addBtn.disabled = false;
-              statusEl.textContent = "";
-            }
-            if (err && !(err instanceof ZXing.NotFoundException)) {
-              console.error(err);
-            }
+        const devices = await codeReader.listVideoInputDevices();
+        const rearCamera = devices.find(d => d.label.toLowerCase().includes("back")) || devices[0];
+
+        if (!rearCamera) {
+          statusEl.textContent = "No camera found on this device.";
+          return;
+        }
+
+        await codeReader.decodeFromVideoDevice(rearCamera.deviceId, videoEl, (result, err) => {
+          if (result) {
+            console.log("Scanned barcode:", result.text);
+            lastScanned = result.text;
+            scanResult.textContent = "Scanned: " + lastScanned;
+            addBtn.disabled = false;
+            statusEl.textContent = "";
           }
-        );
-        // Remember how to stop the stream
+          if (err && !(err instanceof ZXing.NotFoundException)) {
+            console.error("Scanner error:", err);
+            statusEl.textContent = "Scanner error: " + err.message;
+          }
+        });
+
+        // Keep track of stream to stop later
         const stream = videoEl.srcObject;
         streamStopper = () => {
           stream && stream.getTracks().forEach(t => t.stop());
           codeReader.reset();
         };
-      } catch (e) {
-        console.error("Camera start error:", e);
-        statusEl.textContent = "Camera error: " + e.message;
+
+      } catch (error) {
+        console.error("Camera init failed:", error);
+        statusEl.textContent = "Failed to access camera: " + error.message;
       }
     }
 
-    function stopCamera() {
+    function stopScanner() {
       try {
         if (streamStopper) streamStopper();
         streamStopper = null;
@@ -111,19 +117,12 @@
       }
     }
 
-    startCamBtn.addEventListener('click', startCamera);
-    stopCamBtn.addEventListener('click', stopCamera);
+    startCamBtn.addEventListener('click', startScanner);
+    stopCamBtn.addEventListener('click', stopScanner);
 
-    // Auto-start camera on phones after a user gesture:
-    document.addEventListener('touchstart', function once() {
-      document.removeEventListener('touchstart', once);
-      startCamera();
-    }, { passive: true });
-
-    // ===== ADD ITEM (POST as form-urlencoded; no CORS preflight) =====
+    // ===== ADD ITEM =====
     addBtn.addEventListener('click', async () => {
       if (!lastScanned) return;
-
       const product = prompt("Enter product name:", "Unknown") || "Unknown";
       const qty = prompt("Enter quantity:", "1") || "1";
       const price = prompt("Enter price:", "0") || "0";
@@ -142,7 +141,6 @@
           body
         });
 
-        // Apps Script returns JSON text; parse safely:
         const text = await res.text();
         let json;
         try { json = JSON.parse(text); } catch {
@@ -166,7 +164,7 @@
       }
     });
 
-    // ===== MANUAL BARCODE (fallback) =====
+    // ===== MANUAL ADD =====
     manualAddBtn.addEventListener('click', () => {
       const v = manualInput.value.trim();
       if (!v) return alert("Enter a barcode first.");
@@ -176,7 +174,7 @@
       statusEl.textContent = "";
     });
 
-    // ===== LOAD INVENTORY (GET) =====
+    // ===== LOAD INVENTORY =====
     async function loadInventory() {
       statusEl.textContent = "";
       try {
@@ -189,9 +187,8 @@
           return;
         }
 
-        // Build table (skip header row in display if you want)
         let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th></tr>";
-        const rows = data.slice(1); // assume row 0 is headers
+        const rows = data.slice(1);
         if (rows.length === 0) {
           html += `<tr><td colspan="4" class="muted">No inventory yet.</td></tr>`;
         } else {
@@ -215,7 +212,7 @@
     }
     loadBtn.addEventListener('click', loadInventory);
 
-    // Quick connectivity check
+    // ===== PING =====
     pingBtn.addEventListener('click', async () => {
       try {
         const res = await fetch(API_URL);
@@ -231,7 +228,6 @@
     // Initial load
     window.addEventListener('load', () => {
       loadInventory();
-      // don’t auto-start camera on desktop
     });
   </script>
 </body>
