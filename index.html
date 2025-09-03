@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #video { width: 100%; max-width: 400px; border: 1px solid #ccc; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    button { margin-top: 10px; padding: 8px 12px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>📦 Inventory Tracker</h1>
+
+  <video id="video" autoplay></video>
+  <p id="scan-result">Scan a barcode...</p>
+  <button onclick="loadInventory()">📋 Load Inventory</button>
+
+  <div id="inventory"></div>
+
+  <!-- ZXing library for barcode scanning -->
+  <script src="https://unpkg.com/@zxing/library@latest"></script>
+  <script>
+    // ========== CONFIGURE YOUR WEB APP URL ==========
+    const API_URL = "https://script.google.com/macros/s/AKfycbyOELJUS89E78ST2Bw_9Rz-oYyk2jUEJtZZqSVR8HPOyGOWfhKp6yDDqWmMPYGOkJxIbQ/exec"; // Replace with your Google Apps Script Web App URL
+
+    // ========= START CAMERA AND SCANNER =========
+    const codeReader = new ZXing.BrowserMultiFormatReader();
+    codeReader.decodeFromVideoDevice(null, 'video', (result, err) => {
+      if (result) {
+        const barcode = result.text;
+        document.getElementById('scan-result').innerText = "Scanned: " + barcode;
+        addToInventory(barcode);
+      }
+    });
+
+    // ========= LOAD INVENTORY =========
+    async function loadInventory() {
+      try {
+        const res = await fetch(API_URL);
+        const data = await res.json();
+
+        let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th></tr>";
+        data.slice(1).forEach(row => { // skip headers
+          html += `<tr>
+            <td>${row[0]}</td>
+            <td>${row[1]}</td>
+            <td>${row[2]}</td>
+            <td>${row[3]}</td>
+          </tr>`;
+        });
+        html += "</table>";
+        document.getElementById('inventory').innerHTML = html;
+      } catch (error) {
+        console.error("Error loading inventory:", error);
+        document.getElementById('inventory').innerHTML = "Error loading inventory";
+      }
+    }
+
+    // ========= ADD SCANNED ITEM =========
+    async function addToInventory(barcode) {
+      try {
+        await fetch(API_URL, {
+          method: "POST",
+          body: JSON.stringify({
+            Barcode: barcode,
+            Product: "Unknown", // You can add a form later to set product name
+            Quantity: 1,
+            Price: 0
+          }),
+          headers: { "Content-Type": "application/json" }
+        });
+        loadInventory(); // Refresh table
+      } catch (error) {
+        console.error("Error adding inventory:", error);
+      }
+    }
+
+    // Auto-load inventory on page load
+    window.onload = loadInventory;
+  </script>
+</body>
+</html>
