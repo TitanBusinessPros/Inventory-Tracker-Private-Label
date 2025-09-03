@@ -11,6 +11,7 @@
     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
     button { margin-top: 10px; padding: 8px 12px; font-size: 16px; }
     #scanner-container { display: flex; flex-direction: column; align-items: center; }
+    input { padding: 6px; margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -20,6 +21,8 @@
     <video id="video" autoplay></video>
     <p id="scan-result">Scan a barcode...</p>
     <button id="add-btn" disabled>Add to Inventory</button>
+    <input type="text" id="manual-barcode" placeholder="Enter barcode manually">
+    <button id="manual-add-btn">Add Manually</button>
   </div>
 
   <button id="load-btn">📋 Load Inventory</button>
@@ -29,21 +32,29 @@
   <script src="https://unpkg.com/@zxing/library@latest"></script>
   <script>
     // ===== CONFIGURE YOUR WEB APP URL =====
-    const API_URL = "https://script.google.com/macros/s/AKfycbyOELJUS89E78ST2Bw_9Rz-oYyk2jUEJtZZqSVR8HPOyGOWfhKp6yDDqWmMPYGOkJxIbQ/exec"; // Replace with your deployed Apps Script Web App URL
+    const API_URL = "https://script.google.com/macros/s/AKfycbyOELJUS89E78ST2Bw_9Rz-oYyk2jUEJtZZqSVR8HPOyGOWfhKp6yDDqWmMPYGOkJxIbQ/exec";
 
     let lastScanned = null;
 
-    // ===== SCANNER SETUP =====
-    const codeReader = new ZXing.BrowserMultiFormatReader();
     const videoElement = document.getElementById('video');
     const scanResult = document.getElementById('scan-result');
     const addButton = document.getElementById('add-btn');
+    const manualBarcodeInput = document.getElementById('manual-barcode');
+    const manualAddBtn = document.getElementById('manual-add-btn');
+    const loadBtn = document.getElementById('load-btn');
+    const inventoryDiv = document.getElementById('inventory');
 
+    // ===== SCANNER SETUP =====
+    const codeReader = new ZXing.BrowserMultiFormatReader();
     codeReader.decodeFromVideoDevice(null, videoElement, (result, err) => {
       if (result) {
+        console.log("Scanned barcode:", result.text);
         lastScanned = result.text;
         scanResult.innerText = "Scanned: " + lastScanned;
-        addButton.disabled = false; // enable "Add to Inventory"
+        addButton.disabled = false;
+      }
+      if (err && !(err instanceof ZXing.NotFoundException)) {
+        console.error(err);
       }
     });
 
@@ -69,20 +80,29 @@
         lastScanned = null;
         addButton.disabled = true;
         scanResult.innerText = "Scan a barcode...";
-        loadInventory(); // refresh table
+        loadInventory();
       } catch (error) {
         console.error("Error adding inventory:", error);
         alert("Failed to add item");
       }
     });
 
-    // ===== LOAD INVENTORY =====
-    const loadBtn = document.getElementById('load-btn');
-    const inventoryDiv = document.getElementById('inventory');
+    // ===== MANUAL ADD =====
+    manualAddBtn.addEventListener('click', async () => {
+      const barcode = manualBarcodeInput.value.trim();
+      if (!barcode) return alert("Enter a barcode first");
+      lastScanned = barcode;
+      addButton.disabled = false;
+      scanResult.innerText = "Scanned manually: " + lastScanned;
+    });
 
+    // ===== LOAD INVENTORY =====
     async function loadInventory() {
       try {
-        const res = await fetch(API_URL);
+        const res = await fetch(API_URL, { 
+          method: "GET",
+          headers: { "Content-Type": "application/json" }
+        });
         const data = await res.json();
 
         if (data.length <= 1) {
@@ -91,7 +111,7 @@
         }
 
         let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th></tr>";
-        data.slice(1).forEach(row => { // skip headers
+        data.slice(1).forEach(row => {
           html += `<tr>
             <td>${row[0]}</td>
             <td>${row[1]}</td>
