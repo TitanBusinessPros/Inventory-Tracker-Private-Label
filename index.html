@@ -11,7 +11,8 @@
     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
     button { margin-top: 10px; padding: 8px 12px; font-size: 16px; }
     #scanner-container { display: flex; flex-direction: column; align-items: center; }
-    input { padding: 6px; margin-top: 6px; }
+    input { padding: 6px; margin-top: 6px; width: 200px; }
+    .error { color: red; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -21,21 +22,23 @@
     <video id="video" autoplay></video>
     <p id="scan-result">Scan a barcode...</p>
     <button id="add-btn" disabled>Add to Inventory</button>
+
+    <p>Manual barcode entry:</p>
     <input type="text" id="manual-barcode" placeholder="Enter barcode manually">
     <button id="manual-add-btn">Add Manually</button>
   </div>
 
   <button id="load-btn">📋 Load Inventory</button>
   <div id="inventory"></div>
+  <p id="status" class="error"></p>
 
   <!-- ZXing library for barcode scanning -->
   <script src="https://unpkg.com/@zxing/library@latest"></script>
   <script>
     // ===== CONFIGURE YOUR WEB APP URL =====
-    const API_URL = "https://script.google.com/macros/s/AKfycbwGNoSi_e8J6yh2S5dMTRJTcongGYBcX-mxTDtxkus33YRBev3w8B-zQGu6fulAGGJS6g/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbx1Bu_DoksP69UyJsdeUsDBk8RjCcNWXx8gLeE9Q-rfiHunPInRqvTeATnK0PwbUpzwNg/exec";
 
     let lastScanned = null;
-
     const videoElement = document.getElementById('video');
     const scanResult = document.getElementById('scan-result');
     const addButton = document.getElementById('add-btn');
@@ -43,6 +46,7 @@
     const manualAddBtn = document.getElementById('manual-add-btn');
     const loadBtn = document.getElementById('load-btn');
     const inventoryDiv = document.getElementById('inventory');
+    const status = document.getElementById('status');
 
     // ===== SCANNER SETUP =====
     const codeReader = new ZXing.BrowserMultiFormatReader();
@@ -52,6 +56,7 @@
         lastScanned = result.text;
         scanResult.innerText = "Scanned: " + lastScanned;
         addButton.disabled = false;
+        status.innerText = "";
       }
       if (err && !(err instanceof ZXing.NotFoundException)) {
         console.error(err);
@@ -61,12 +66,13 @@
     // ===== ADD SCANNED ITEM =====
     addButton.addEventListener('click', async () => {
       if (!lastScanned) return;
+
       const productName = prompt("Enter product name:", "Unknown");
       const quantity = prompt("Enter quantity:", "1");
       const price = prompt("Enter price:", "0");
 
       try {
-        await fetch(API_URL, {
+        const response = await fetch(API_URL, {
           method: "POST",
           body: JSON.stringify({
             Barcode: lastScanned,
@@ -76,14 +82,20 @@
           }),
           headers: { "Content-Type": "application/json" }
         });
-        alert("Item added!");
-        lastScanned = null;
-        addButton.disabled = true;
-        scanResult.innerText = "Scan a barcode...";
-        loadInventory();
+        const result = await response.json();
+
+        if (result.status === "success") {
+          alert("Item added!");
+          lastScanned = null;
+          addButton.disabled = true;
+          scanResult.innerText = "Scan a barcode...";
+          loadInventory();
+        } else {
+          throw new Error(result.message || "Unknown error");
+        }
       } catch (error) {
         console.error("Error adding inventory:", error);
-        alert("Failed to add item");
+        status.innerText = "Failed to add item: " + error.message;
       }
     });
 
@@ -91,18 +103,18 @@
     manualAddBtn.addEventListener('click', async () => {
       const barcode = manualBarcodeInput.value.trim();
       if (!barcode) return alert("Enter a barcode first");
+
       lastScanned = barcode;
       addButton.disabled = false;
       scanResult.innerText = "Scanned manually: " + lastScanned;
+      status.innerText = "";
     });
 
     // ===== LOAD INVENTORY =====
     async function loadInventory() {
       try {
-        const res = await fetch(API_URL, { 
-          method: "GET",
-          headers: { "Content-Type": "application/json" }
-        });
+        const res = await fetch(API_URL);
+        if (!res.ok) throw new Error(`HTTP error ${res.status}`);
         const data = await res.json();
 
         if (data.length <= 1) {
@@ -121,17 +133,16 @@
         });
         html += "</table>";
         inventoryDiv.innerHTML = html;
+        status.innerText = "";
       } catch (error) {
         console.error("Error loading inventory:", error);
-        inventoryDiv.innerHTML = "<p>Error loading inventory</p>";
+        inventoryDiv.innerHTML = "";
+        status.innerText = "Error loading inventory: " + error.message;
       }
     }
 
     loadBtn.addEventListener('click', loadInventory);
     window.onload = loadInventory;
-  </script>
-</body>
-</html>dow.onload = loadInventory;
   </script>
 </body>
 </html>
