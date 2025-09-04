@@ -9,17 +9,31 @@
     video { width: 100%; max-width: 420px; border: 1px solid #ccc; margin-bottom: 10px; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; }
     th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    button { margin-top: 10px; padding: 8px 12px; font-size: 16px; }
+    button { margin: 6px; padding: 8px 12px; font-size: 15px; }
     #scanner-container { display: flex; flex-direction: column; align-items: center; }
     input { padding: 6px; margin-top: 6px; width: 220px; }
     .row { display: flex; gap: 10px; flex-wrap: wrap; }
     .error { color: #b00020; font-weight: bold; }
     .ok { color: #2e7d32; font-weight: bold; }
     .muted { color: #999; }
+    #instructions { display: none; margin-top: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; background: #f9f9f9; }
   </style>
 </head>
 <body>
   <h1>📦 Inventory Tracker</h1>
+
+  <!-- Instructions toggle -->
+  <button id="toggle-instructions">Instructions For Use</button>
+  <div id="instructions">
+    <h3>How to Use:</h3>
+    <ol>
+      <li>Scroll down and press the button <b>Ping API</b>.</li>
+      <li>Press <b>Start Camera</b> and hold barcode sideways in a well lit area.</li>
+      <li>After scanning, press <b>Add to Inventory</b> and enter product name, quantity, and price (only digits & decimal, no $).</li>
+      <li>Scroll down and press <b>Load Inventory</b> to verify item is recorded.</li>
+      <li>Use <b>Delete</b> button in the table to remove items.</li>
+    </ol>
+  </div>
 
   <div id="scanner-container">
     <video id="video" autoplay playsinline muted></video>
@@ -49,10 +63,10 @@
   <script src="https://unpkg.com/@zxing/library@latest"></script>
   <script>
     // ===== YOUR APPS SCRIPT WEB APP URL =====
-    const API_URL = "https://script.google.com/macros/s/AKfycbx-3nkSgbUTT3rzbb1eRb4qZ-vtwv8DU_rAOYgAwYuKqD9Zw3opU252jHV_ecJAFj0t3A/exec";
+    const API_URL = "https://script.google.com/macros/s/AKfycbyCVnGe9QWnOnLZXwQtcMgEA9INfWFqgdL7M06ebpNaGBeb8z4Tv0TSSw-4EtOZosWtJQ/exec";
 
     let lastScanned = null;
-    let streamStopper = null; // to stop camera cleanly
+    let streamStopper = null;
 
     const videoEl = document.getElementById('video');
     const scanResult = document.getElementById('scan-result');
@@ -65,58 +79,43 @@
     const pingBtn = document.getElementById('ping-btn');
     const inventoryDiv = document.getElementById('inventory');
     const statusEl = document.getElementById('status');
+    const instructionsDiv = document.getElementById('instructions');
+    const toggleInstructionsBtn = document.getElementById('toggle-instructions');
 
-    // ===== SCANNER SETUP (FIXED) =====
+    // ===== SCANNER SETUP =====
     const codeReader = new ZXing.BrowserMultiFormatReader();
 
     async function startScanner() {
       try {
         const devices = await codeReader.listVideoInputDevices();
         const rearCamera = devices.find(d => d.label.toLowerCase().includes("back")) || devices[0];
-
         if (!rearCamera) {
           statusEl.textContent = "No camera found on this device.";
           return;
         }
-
         await codeReader.decodeFromVideoDevice(rearCamera.deviceId, videoEl, (result, err) => {
           if (result) {
-            console.log("Scanned barcode:", result.text);
             lastScanned = result.text;
             scanResult.textContent = "Scanned: " + lastScanned;
             addBtn.disabled = false;
             statusEl.textContent = "";
           }
-          if (err && !(err instanceof ZXing.NotFoundException)) {
-            console.error("Scanner error:", err);
-            statusEl.textContent = "Scanner error: " + err.message;
-          }
         });
-
-        // Keep track of stream to stop later
         const stream = videoEl.srcObject;
         streamStopper = () => {
           stream && stream.getTracks().forEach(t => t.stop());
           codeReader.reset();
         };
-
       } catch (error) {
-        console.error("Camera init failed:", error);
-        statusEl.textContent = "Failed to access camera: " + error.message;
+        statusEl.textContent = "Camera error: " + error.message;
       }
     }
-
     function stopScanner() {
-      try {
-        if (streamStopper) streamStopper();
-        streamStopper = null;
-        addBtn.disabled = true;
-        scanResult.textContent = "Scan a barcode…";
-      } catch (e) {
-        console.error(e);
-      }
+      if (streamStopper) streamStopper();
+      streamStopper = null;
+      addBtn.disabled = true;
+      scanResult.textContent = "Scan a barcode…";
     }
-
     startCamBtn.addEventListener('click', startScanner);
     stopCamBtn.addEventListener('click', stopScanner);
 
@@ -128,25 +127,19 @@
       const price = prompt("Enter price:", "0") || "0";
 
       try {
-        const body = new URLSearchParams({
+        const body = {
+          action: "add",
           Barcode: lastScanned,
           Product: product,
           Quantity: String(parseInt(qty, 10) || 0),
           Price: String(parseFloat(price) || 0)
-        });
-
+        };
         const res = await fetch(API_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-          body
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
         });
-
-        const text = await res.text();
-        let json;
-        try { json = JSON.parse(text); } catch {
-          throw new Error("Unexpected response: " + text.slice(0, 120));
-        }
-
+        const json = await res.json();
         if (json.status === "success") {
           statusEl.className = "ok";
           statusEl.textContent = "Added!";
@@ -155,12 +148,11 @@
           scanResult.textContent = "Scan a barcode…";
           await loadInventory();
         } else {
-          throw new Error(json.message || "Unknown error");
+          throw new Error(json.message);
         }
       } catch (err) {
-        console.error("Add error:", err);
         statusEl.className = "error";
-        statusEl.textContent = "Failed to add item: " + err.message;
+        statusEl.textContent = "Failed: " + err.message;
       }
     });
 
@@ -176,21 +168,17 @@
 
     // ===== LOAD INVENTORY =====
     async function loadInventory() {
-      statusEl.textContent = "";
       try {
-        const res = await fetch(API_URL, { method: "GET" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const res = await fetch(API_URL);
         const data = await res.json();
-
         if (!Array.isArray(data) || data.length === 0) {
           inventoryDiv.innerHTML = "<p>No data.</p>";
           return;
         }
-
-        let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th></tr>";
+        let html = "<table><tr><th>Barcode</th><th>Product</th><th>Quantity</th><th>Price</th><th>Delete</th></tr>";
         const rows = data.slice(1);
         if (rows.length === 0) {
-          html += `<tr><td colspan="4" class="muted">No inventory yet.</td></tr>`;
+          html += `<tr><td colspan="5" class="muted">No inventory yet.</td></tr>`;
         } else {
           rows.forEach(r => {
             html += `<tr>
@@ -198,19 +186,43 @@
               <td>${r[1] ?? ""}</td>
               <td>${r[2] ?? ""}</td>
               <td>${r[3] ?? ""}</td>
+              <td><button onclick="deleteItem('${r[0]}')">Delete</button></td>
             </tr>`;
           });
         }
         html += "</table>";
         inventoryDiv.innerHTML = html;
       } catch (err) {
-        console.error("Load error:", err);
         statusEl.className = "error";
-        statusEl.textContent = "Error loading inventory: " + err.message;
+        statusEl.textContent = "Error loading: " + err.message;
         inventoryDiv.innerHTML = "";
       }
     }
     loadBtn.addEventListener('click', loadInventory);
+
+    // ===== DELETE ITEM =====
+    async function deleteItem(barcode) {
+      if (!confirm("Delete item with barcode " + barcode + "?")) return;
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "delete", Barcode: barcode })
+        });
+        const json = await res.json();
+        if (json.status === "success") {
+          statusEl.className = "ok";
+          statusEl.textContent = "Deleted!";
+          await loadInventory();
+        } else {
+          throw new Error(json.message);
+        }
+      } catch (err) {
+        statusEl.className = "error";
+        statusEl.textContent = "Delete failed: " + err.message;
+      }
+    }
+    window.deleteItem = deleteItem;
 
     // ===== PING =====
     pingBtn.addEventListener('click', async () => {
@@ -225,10 +237,13 @@
       }
     });
 
-    // Initial load
-    window.addEventListener('load', () => {
-      loadInventory();
+    // Toggle instructions
+    toggleInstructionsBtn.addEventListener('click', () => {
+      instructionsDiv.style.display = instructionsDiv.style.display === "none" ? "block" : "none";
     });
+
+    // Initial load
+    window.addEventListener('load', loadInventory);
   </script>
 </body>
 </html>
